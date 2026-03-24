@@ -1,0 +1,127 @@
+name: 🤖 자동 블로그 포스팅
+
+on:
+  schedule:
+    # ── KST 오전 9시 = UTC 00:00 ──────────────────────────────────────────────
+    - cron: "0 0 * * *"
+    # ── KST 오후 9시 = UTC 12:00 ─────────────────────────────────────────────
+    - cron: "0 12 * * *"
+
+  # 수동 실행 (GitHub Actions 탭 → Run workflow)
+  workflow_dispatch:
+    inputs:
+      topic:
+        description: "포스팅 주제 (비워두면 기본값 사용)"
+        required: false
+        default: ""
+      language:
+        description: "언어 (ko / en)"
+        required: false
+        default: "ko"
+
+jobs:
+  # ── 한국어 포스팅 ──────────────────────────────────────────────────────────
+  post-korean:
+    name: 🇰🇷 한국어 Vibe Coding 포스팅
+    runs-on: ubuntu-latest
+    # 수동 실행 시 언어가 en이면 스킵
+    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.language != 'en' }}
+
+    steps:
+      - name: 📥 코드 체크아웃
+        uses: actions/checkout@v4
+
+      - name: 🐍 Python 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: 📦 의존성 설치
+        run: pip install -r requirements.txt
+
+      - name: 🚀 포스팅 실행 (한국어)
+        env:
+          ANTHROPIC_API_KEY:    ${{ secrets.ANTHROPIC_API_KEY }}
+          BLOGGER_BLOG_ID:      ${{ secrets.BLOGGER_BLOG_ID_KO }}
+          GOOGLE_CLIENT_ID:     ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN_KO }}
+          IMAGE_API_KEY:        ${{ secrets.IMAGE_API_KEY }}
+          BLOG_TOPIC: ${{ github.event.inputs.topic || 'Vibe Coding AI 개발 자동화' }}
+          BLOG_LANG:  "ko"
+          BLOG_LABEL: "Vibe Coding,AI,자동화,개발,Claude"
+        run: python main.py
+
+  # ── 영어 포스팅 (별도 Job → 시간 겹침 방지) ───────────────────────────────
+  post-english:
+    name: 🇺🇸 영어 Vibe Coding 포스팅
+    runs-on: ubuntu-latest
+    needs: post-korean          # 한국어 완료 후 시작 (에러 방지)
+    if: ${{ always() && (github.event_name != 'workflow_dispatch' || github.event.inputs.language != 'ko') }}
+
+    steps:
+      - name: 📥 코드 체크아웃
+        uses: actions/checkout@v4
+
+      - name: 🐍 Python 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: 📦 의존성 설치
+        run: pip install -r requirements.txt
+
+      - name: ⏳ 2분 대기 (포스팅 간격 확보)
+        run: sleep 120
+
+      - name: 🚀 포스팅 실행 (영어)
+        env:
+          ANTHROPIC_API_KEY:    ${{ secrets.ANTHROPIC_API_KEY }}
+          BLOGGER_BLOG_ID:      ${{ secrets.BLOGGER_BLOG_ID_EN }}
+          GOOGLE_CLIENT_ID:     ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN_EN }}
+          IMAGE_API_KEY:        ${{ secrets.IMAGE_API_KEY }}
+          BLOG_TOPIC: ${{ github.event.inputs.topic || 'Vibe Coding AI Development Automation' }}
+          BLOG_LANG:  "en"
+          BLOG_LABEL: "Vibe Coding,AI,Automation,Development,Claude"
+        run: python main.py
+
+  # ── 재테크 포스팅 (오전 9시에만) ─────────────────────────────────────────
+  post-finance:
+    name: 💰 재테크 포스팅
+    runs-on: ubuntu-latest
+    needs: post-english
+    # 오전 9시 스케줄(UTC 0:00)에만 실행
+    if: ${{ always() && github.event.schedule == '0 0 * * *' }}
+
+    steps:
+      - name: 📥 코드 체크아웃
+        uses: actions/checkout@v4
+
+      - name: 🐍 Python 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: 📦 의존성 설치
+        run: pip install -r requirements.txt
+
+      - name: ⏳ 2분 대기
+        run: sleep 120
+
+      - name: 🚀 포스팅 실행 (재테크)
+        env:
+          ANTHROPIC_API_KEY:    ${{ secrets.ANTHROPIC_API_KEY }}
+          BLOGGER_BLOG_ID:      ${{ secrets.BLOGGER_BLOG_ID_FIN }}
+          GOOGLE_CLIENT_ID:     ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN_FIN }}
+          IMAGE_API_KEY:        ${{ secrets.IMAGE_API_KEY }}
+          BLOG_TOPIC:  "재테크 주식 ETF 투자 트렌드"
+          BLOG_LANG:   "ko"
+          BLOG_LABEL:  "재테크,주식,ETF,투자,경제"
+        run: python main.py
