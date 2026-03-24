@@ -11,6 +11,7 @@ import json
 import time
 import logging
 import requests
+import anthropic as anthropic_sdk
 from datetime import datetime, timezone, timedelta
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
@@ -51,15 +52,9 @@ BLOG_LABEL   = os.environ.get("BLOG_LABEL", "Vibe Coding,AI,자동화,개발")
 
 def call_claude(system_prompt: str, user_prompt: str, use_search: bool = True) -> str:
     """Claude API 호출 (웹 검색 툴 포함)"""
-    headers = {
-        "x-api-key": ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
-        "Content-Type": "application/json",
-    }
-    if use_search:
-        headers["anthropic-beta"] = "web-search-2025-03-05"
+    client = anthropic_sdk.Anthropic(api_key=ANTHROPIC_API_KEY)
 
-    payload = {
+    kwargs = {
         "model": CLAUDE_MODEL,
         "max_tokens": MAX_TOKENS,
         "system": system_prompt,
@@ -67,22 +62,19 @@ def call_claude(system_prompt: str, user_prompt: str, use_search: bool = True) -
     }
 
     if use_search:
-        payload["tools"] = [{"type": "web_search_20250305", "name": "web_search"}]
-
-    response = requests.post(
-        "https://api.anthropic.com/v1/messages",
-        headers=headers,
-        json=payload,
-        timeout=120,
-    )
-    response.raise_for_status()
-    data = response.json()
+        kwargs["tools"] = [{"type": "web_search_20250305", "name": "web_search"}]
+        response = client.messages.create(
+            **kwargs,
+            extra_headers={"anthropic-beta": "web-search-2025-03-05"},
+        )
+    else:
+        response = client.messages.create(**kwargs)
 
     # 텍스트 블록만 추출
     text_parts = [
-        block["text"]
-        for block in data.get("content", [])
-        if block.get("type") == "text"
+        block.text
+        for block in response.content
+        if block.type == "text"
     ]
     return "\n".join(text_parts).strip()
 
