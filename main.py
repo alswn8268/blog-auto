@@ -37,7 +37,7 @@ IMAGE_API_KEY       = os.environ.get("IMAGE_API_KEY", "")
 
 # ── 설정 ────────────────────────────────────────────────────────────────────────
 KST = timezone(timedelta(hours=9))
-CLAUDE_MODEL = "claude-sonnet-4-20250514"  # 최신 Sonnet 사용
+CLAUDE_MODEL = "claude-sonnet-4-6"  # 최신 Sonnet 사용
 MAX_TOKENS   = 4000
 
 # 포스팅 주제 설정 (환경변수로 재정의 가능)
@@ -55,9 +55,10 @@ def call_claude(system_prompt: str, user_prompt: str, use_search: bool = True) -
     headers = {
         "x-api-key": ANTHROPIC_API_KEY,
         "anthropic-version": "2023-06-01",
-        # "anthropic-beta": "tools-2024-04-04",
         "Content-Type": "application/json",
     }
+    if use_search:
+        headers["anthropic-beta"] = "web-search-2025-03-05"
 
     payload = {
         "model": CLAUDE_MODEL,
