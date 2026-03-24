@@ -11,7 +11,8 @@ import json
 import time
 import logging
 import requests
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from datetime import datetime, timezone, timedelta
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
@@ -51,21 +52,19 @@ BLOG_LABEL   = os.environ.get("BLOG_LABEL", "Vibe Coding,AI,자동화,개발")
 
 def call_gemini(system_prompt: str, user_prompt: str, use_search: bool = True) -> str:
     """Gemini API 호출 (Google Search 그라운딩 포함)"""
-    genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel(
-        model_name=GEMINI_MODEL,
+    client = genai.Client(api_key=GEMINI_API_KEY)
+
+    config = types.GenerateContentConfig(
         system_instruction=system_prompt,
+        max_output_tokens=8000,
+        temperature=0.7,
+        tools=[types.Tool(google_search=types.GoogleSearch())] if use_search else [],
     )
 
-    tools = [genai.protos.Tool(google_search=genai.protos.GoogleSearch())] if use_search else None
-
-    response = model.generate_content(
-        user_prompt,
-        tools=tools,
-        generation_config=genai.GenerationConfig(
-            max_output_tokens=8000,
-            temperature=0.7,
-        ),
+    response = client.models.generate_content(
+        model=GEMINI_MODEL,
+        contents=user_prompt,
+        config=config,
     )
     return response.text.strip()
 
