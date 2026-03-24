@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Google Blogger 자동 포스팅 시스템
-- Claude AI로 Vibe Coding 최신 뉴스 수집 및 블로그 포스팅 생성
+- Gemini AI로 Vibe Coding 최신 뉴스 수집 및 블로그 포스팅 생성
 - SEO 최적화 포함
 - Google Blogger API 자동 게시
 """
@@ -11,7 +11,7 @@ import json
 import time
 import logging
 import requests
-import anthropic as anthropic_sdk
+import google.generativeai as genai
 from datetime import datetime, timezone, timedelta
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
@@ -26,7 +26,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ── 환경변수 ────────────────────────────────────────────────────────────────────
-ANTHROPIC_API_KEY   = os.environ["ANTHROPIC_API_KEY"]
+GEMINI_API_KEY      = os.environ["GEMINI_API_KEY"]
 BLOGGER_BLOG_ID     = os.environ["BLOGGER_BLOG_ID"]
 GOOGLE_CLIENT_ID    = os.environ["GOOGLE_CLIENT_ID"]
 GOOGLE_CLIENT_SECRET = os.environ["GOOGLE_CLIENT_SECRET"]
@@ -37,8 +37,7 @@ IMAGE_API_KEY       = os.environ.get("IMAGE_API_KEY", "")
 
 # ── 설정 ────────────────────────────────────────────────────────────────────────
 KST = timezone(timedelta(hours=9))
-CLAUDE_MODEL = "claude-sonnet-4-6"  # 최신 Sonnet 사용
-MAX_TOKENS   = 8000
+GEMINI_MODEL = "gemini-2.0-flash"  # 무료 티어 지원 모델
 
 # 포스팅 주제 설정 (환경변수로 재정의 가능)
 BLOG_TOPIC   = os.environ.get("BLOG_TOPIC", "Vibe Coding")
@@ -47,36 +46,28 @@ BLOG_LABEL   = os.environ.get("BLOG_LABEL", "Vibe Coding,AI,자동화,개발")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 1. Claude API 호출 (웹 검색 + 콘텐츠 생성)
+# 1. Gemini API 호출 (Google Search 그라운딩 + 콘텐츠 생성)
 # ══════════════════════════════════════════════════════════════════════════════
 
-def call_claude(system_prompt: str, user_prompt: str, use_search: bool = True) -> str:
-    """Claude API 호출 (웹 검색 툴 포함)"""
-    client = anthropic_sdk.Anthropic(api_key=ANTHROPIC_API_KEY)
+def call_gemini(system_prompt: str, user_prompt: str, use_search: bool = True) -> str:
+    """Gemini API 호출 (Google Search 그라운딩 포함)"""
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel(
+        model_name=GEMINI_MODEL,
+        system_instruction=system_prompt,
+    )
 
-    kwargs = {
-        "model": CLAUDE_MODEL,
-        "max_tokens": MAX_TOKENS,
-        "system": system_prompt,
-        "messages": [{"role": "user", "content": user_prompt}],
-    }
+    tools = [genai.protos.Tool(google_search=genai.protos.GoogleSearch())] if use_search else None
 
-    if use_search:
-        kwargs["tools"] = [{"type": "web_search_20250305", "name": "web_search"}]
-        response = client.messages.create(
-            **kwargs,
-            extra_headers={"anthropic-beta": "web-search-2025-03-05"},
-        )
-    else:
-        response = client.messages.create(**kwargs)
-
-    # 텍스트 블록만 추출
-    text_parts = [
-        block.text
-        for block in response.content
-        if block.type == "text"
-    ]
-    return "\n".join(text_parts).strip()
+    response = model.generate_content(
+        user_prompt,
+        tools=tools,
+        generation_config=genai.GenerationConfig(
+            max_output_tokens=8000,
+            temperature=0.7,
+        ),
+    )
+    return response.text.strip()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -134,8 +125,8 @@ Search for today's latest news and write a blog post with:
 5. CTA: Reader engagement prompt at the end
 6. Length: Minimum 600 words"""
 
-    logger.info(f"📝 Claude로 포스트 생성 중: {topic}")
-    raw = call_claude(system, user, use_search=True)
+    logger.info(f"📝 Gemini로 포스트 생성 중: {topic}")
+    raw = call_gemini(system, user, use_search=True)
 
     # JSON 파싱
     try:
