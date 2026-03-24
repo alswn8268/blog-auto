@@ -87,10 +87,16 @@ def generate_blog_post(topic: str, lang: str = "ko") -> dict:
     now_kst = datetime.now(KST).strftime("%Y년 %m월 %d일 %H시")
 
     if lang == "ko":
-        system = """당신은 SEO 전문가이자 테크 블로거입니다.
-최신 뉴스를 검색하여 교육적이고 가독성 높은 한국어 블로그 포스트를 작성합니다.
+        system = """당신은 10년 경력의 테크 블로거입니다. 실제 사람이 쓴 것처럼 자연스럽고 개성 있는 한국어 블로그 포스트를 작성합니다.
 
-반드시 다음 JSON 형식으로만 응답하세요 (마크다운 코드블록 없이):
+문체 규칙:
+- AI가 쓴 것처럼 느껴지는 표현 금지: "~할 것입니다", "주목할 만합니다", "살펴보겠습니다", "중요합니다" 등 형식적 표현 사용 금지
+- 대신 구어체와 직접적인 표현 사용: "솔직히", "사실", "그래서 결론은", "한마디로" 등
+- 개인적인 관점과 의견을 자연스럽게 녹여내기
+- 딱딱한 목록 나열보다 스토리텔링 방식으로 서술
+- 독자에게 직접 말하는 것처럼 2인칭("여러분", "당신") 활용
+
+반드시 다음 JSON 형식으로만 응답하세요. 앞뒤에 어떤 설명도 붙이지 말고 JSON만 출력하세요:
 {
   "title": "SEO 최적화 제목 (50-60자)",
   "meta_description": "검색 결과에 표시될 설명 (150-160자)",
@@ -108,13 +114,20 @@ def generate_blog_post(topic: str, lang: str = "ko") -> dict:
 3. SEO: 자연스럽게 키워드 5회 이상 삽입
 4. 가독성: 짧은 문단, 소제목, 불릿 포인트 활용
 5. CTA: 마지막에 독자 참여 유도 문구 포함
-6. 분량: 최소 800자 이상"""
+6. 분량: 최소 800자 이상
+7. 반드시 JSON만 출력 (앞뒤 설명 문장 절대 금지)"""
 
     else:  # en
-        system = """You are an SEO expert and tech blogger.
-Search for the latest news and write an educational, high-readability English blog post.
+        system = """You are a seasoned tech blogger with 10 years of experience. Write blog posts that feel genuinely human — opinionated, conversational, and engaging.
 
-Respond ONLY in this JSON format (no markdown code blocks):
+Style rules:
+- Avoid AI-sounding phrases: "it's worth noting", "in conclusion", "it is important to", "delve into"
+- Use direct, casual language with a clear personal voice
+- Include your own take and opinions naturally
+- Use storytelling over dry bullet lists
+- Speak directly to the reader ("you", "your")
+
+Respond ONLY with JSON — no explanations before or after, just the raw JSON:
 {
   "title": "SEO-optimized title (50-60 chars)",
   "meta_description": "Meta description for search results (150-160 chars)",
@@ -131,17 +144,30 @@ Search for today's latest news and write a blog post with:
 3. SEO: Naturally include keywords 5+ times
 4. Readability: Short paragraphs, subheadings, bullet points
 5. CTA: Reader engagement prompt at the end
-6. Length: Minimum 600 words"""
+6. Length: Minimum 600 words
+7. Output JSON only — no intro sentences, no explanations"""
 
     logger.info(f"📝 Claude로 포스트 생성 중: {topic}")
     raw = call_claude(system, user, use_search=True)
 
-    # JSON 파싱
+    # JSON 파싱 (앞뒤 텍스트나 코드블록이 있어도 JSON 추출)
     try:
         cleaned = raw.strip()
-        if cleaned.startswith("```"):
-            cleaned = "\n".join(cleaned.split("\n")[1:])
-            cleaned = cleaned.rsplit("```", 1)[0]
+        # 코드블록 안에서 JSON 추출
+        if "```" in cleaned:
+            start = cleaned.find("```")
+            end = cleaned.rfind("```")
+            block = cleaned[start:end].lstrip("`")
+            # ```json 처럼 언어 표시 제거
+            if block.startswith("json"):
+                block = block[4:]
+            cleaned = block.strip()
+        # 중괄호 기준으로 JSON 범위 추출 (앞뒤 텍스트 제거)
+        if not cleaned.startswith("{"):
+            start = cleaned.find("{")
+            end = cleaned.rfind("}") + 1
+            if start != -1 and end > start:
+                cleaned = cleaned[start:end]
         post_data = json.loads(cleaned)
     except json.JSONDecodeError:
         logger.warning("JSON 파싱 실패, 기본 구조로 폴백")
