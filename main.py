@@ -9,7 +9,6 @@ Google Blogger 자동 포스팅 시스템
 import os
 import json
 import time
-import base64
 import logging
 import requests
 from datetime import datetime, timezone, timedelta
@@ -38,7 +37,7 @@ IMAGE_API_KEY       = os.environ.get("IMAGE_API_KEY", "")
 # ── 설정 ────────────────────────────────────────────────────────────────────────
 KST = timezone(timedelta(hours=9))
 CLAUDE_MODEL = "claude-sonnet-4-6"  # 최신 Sonnet 사용
-MAX_TOKENS   = 4000
+MAX_TOKENS   = 8000
 
 # 포스팅 주제 설정 (환경변수로 재정의 가능)
 BLOG_TOPIC   = os.environ.get("BLOG_TOPIC", "Vibe Coding")
@@ -192,7 +191,7 @@ def generate_image(prompt: str, title: str) -> str | None:
                 "prompt": f"Professional tech blog thumbnail: {prompt}. "
                           "Modern, clean design, vibrant colors, no text.",
                 "n": 1,
-                "size": "1024x576",
+                "size": "1792x1024",
                 "response_format": "url",
             },
             timeout=60,
@@ -219,8 +218,8 @@ def build_html_with_image(post_data: dict, image_url: str | None) -> str:
 </div>"""
 
     return f"""<!-- SEO Meta -->
-<meta name="description" content="{meta_desc}" />
-<meta name="keywords" content="{keywords_str}" />
+<!-- <meta name="description" content="{meta_desc}" /> -->
+<!-- <meta name="keywords" content="{keywords_str}" /> -->
 
 {image_html}
 {content}
