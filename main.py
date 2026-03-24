@@ -55,7 +55,7 @@ def call_claude(system_prompt: str, user_prompt: str, use_search: bool = True) -
     headers = {
         "x-api-key": ANTHROPIC_API_KEY,
         "anthropic-version": "2023-06-01",
-        "anthropic-beta": "tools-2024-04-04",
+        # "anthropic-beta": "tools-2024-04-04",
         "Content-Type": "application/json",
     }
 
