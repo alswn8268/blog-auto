@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Google Blogger 자동 포스팅 시스템
-- Gemini AI로 Vibe Coding 최신 뉴스 수집 및 블로그 포스팅 생성
+- Claude AI로 Vibe Coding 최신 뉴스 수집 및 블로그 포스팅 생성
 - SEO 최적화 포함
 - Google Blogger API 자동 게시
 """
@@ -11,8 +11,7 @@ import json
 import time
 import logging
 import requests
-from google import genai
-from google.genai import types
+import anthropic as anthropic_sdk
 from datetime import datetime, timezone, timedelta
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
@@ -27,46 +26,56 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ── 환경변수 ────────────────────────────────────────────────────────────────────
-GEMINI_API_KEY      = os.environ["GEMINI_API_KEY"]
-BLOGGER_BLOG_ID     = os.environ["BLOGGER_BLOG_ID"]
-GOOGLE_CLIENT_ID    = os.environ["GOOGLE_CLIENT_ID"]
+ANTHROPIC_API_KEY    = os.environ["ANTHROPIC_API_KEY"]
+BLOGGER_BLOG_ID      = os.environ["BLOGGER_BLOG_ID"]
+GOOGLE_CLIENT_ID     = os.environ["GOOGLE_CLIENT_ID"]
 GOOGLE_CLIENT_SECRET = os.environ["GOOGLE_CLIENT_SECRET"]
 GOOGLE_REFRESH_TOKEN = os.environ["GOOGLE_REFRESH_TOKEN"]
 
 # 이미지 생성 API (선택, 없으면 텍스트 전용)
-IMAGE_API_KEY       = os.environ.get("IMAGE_API_KEY", "")
+IMAGE_API_KEY        = os.environ.get("IMAGE_API_KEY", "")
 
 # ── 설정 ────────────────────────────────────────────────────────────────────────
-KST = timezone(timedelta(hours=9))
-GEMINI_MODEL = "gemini-2.0-flash"  # 무료 티어 지원 모델
+KST          = timezone(timedelta(hours=9))
+CLAUDE_MODEL = "claude-sonnet-4-6"
+MAX_TOKENS   = 8000
 
 # 포스팅 주제 설정 (환경변수로 재정의 가능)
-BLOG_TOPIC   = os.environ.get("BLOG_TOPIC", "Vibe Coding")
-BLOG_LANG    = os.environ.get("BLOG_LANG", "ko")   # ko | en
-BLOG_LABEL   = os.environ.get("BLOG_LABEL", "Vibe Coding,AI,자동화,개발")
+BLOG_TOPIC = os.environ.get("BLOG_TOPIC", "Vibe Coding")
+BLOG_LANG  = os.environ.get("BLOG_LANG", "ko")   # ko | en
+BLOG_LABEL = os.environ.get("BLOG_LABEL", "Vibe Coding,AI,자동화,개발")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 1. Gemini API 호출 (Google Search 그라운딩 + 콘텐츠 생성)
+# 1. Claude API 호출 (웹 검색 + 콘텐츠 생성)
 # ══════════════════════════════════════════════════════════════════════════════
 
-def call_gemini(system_prompt: str, user_prompt: str, use_search: bool = True) -> str:
-    """Gemini API 호출 (Google Search 그라운딩 포함)"""
-    client = genai.Client(api_key=GEMINI_API_KEY)
+def call_claude(system_prompt: str, user_prompt: str, use_search: bool = True) -> str:
+    """Claude API 호출 (웹 검색 툴 포함)"""
+    client = anthropic_sdk.Anthropic(api_key=ANTHROPIC_API_KEY)
 
-    config = types.GenerateContentConfig(
-        system_instruction=system_prompt,
-        max_output_tokens=8000,
-        temperature=0.7,
-        tools=[types.Tool(google_search=types.GoogleSearch())] if use_search else [],
-    )
+    kwargs = {
+        "model": CLAUDE_MODEL,
+        "max_tokens": MAX_TOKENS,
+        "system": system_prompt,
+        "messages": [{"role": "user", "content": user_prompt}],
+    }
 
-    response = client.models.generate_content(
-        model=GEMINI_MODEL,
-        contents=user_prompt,
-        config=config,
-    )
-    return response.text.strip()
+    if use_search:
+        kwargs["tools"] = [{"type": "web_search_20250305", "name": "web_search"}]
+        response = client.messages.create(
+            **kwargs,
+            extra_headers={"anthropic-beta": "web-search-2025-03-05"},
+        )
+    else:
+        response = client.messages.create(**kwargs)
+
+    text_parts = [
+        block.text
+        for block in response.content
+        if block.type == "text"
+    ]
+    return "\n".join(text_parts).strip()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -124,12 +133,11 @@ Search for today's latest news and write a blog post with:
 5. CTA: Reader engagement prompt at the end
 6. Length: Minimum 600 words"""
 
-    logger.info(f"📝 Gemini로 포스트 생성 중: {topic}")
-    raw = call_gemini(system, user, use_search=True)
+    logger.info(f"📝 Claude로 포스트 생성 중: {topic}")
+    raw = call_claude(system, user, use_search=True)
 
     # JSON 파싱
     try:
-        # 혹시 코드블록으로 감싸진 경우 제거
         cleaned = raw.strip()
         if cleaned.startswith("```"):
             cleaned = "\n".join(cleaned.split("\n")[1:])
@@ -152,15 +160,12 @@ Search for today's latest news and write a blog post with:
 # 3. 이미지 생성 (선택)
 # ══════════════════════════════════════════════════════════════════════════════
 
-def generate_image(prompt: str, title: str) -> str | None:
-    """이미지 생성 API 호출 → base64 또는 URL 반환"""
+def generate_image(prompt: str) -> str | None:
+    """이미지 생성 API 호출 → URL 반환"""
     if not IMAGE_API_KEY:
         logger.info("IMAGE_API_KEY 없음, 이미지 생성 건너뜀")
         return None
 
-    # ── nanobanan / Stable Diffusion 호환 API ────────────────────────────────
-    # 사용하는 API에 맞게 엔드포인트와 페이로드를 수정하세요.
-    # 아래는 OpenAI-compatible 이미지 API 예시입니다.
     try:
         resp = requests.post(
             "https://api.openai.com/v1/images/generations",
@@ -169,7 +174,7 @@ def generate_image(prompt: str, title: str) -> str | None:
                 "Content-Type": "application/json",
             },
             json={
-                "model": "dall-e-3",  # 또는 nanobanan2 등 모델명 변경
+                "model": "dall-e-3",
                 "prompt": f"Professional tech blog thumbnail: {prompt}. "
                           "Modern, clean design, vibrant colors, no text.",
                 "n": 1,
@@ -186,10 +191,10 @@ def generate_image(prompt: str, title: str) -> str | None:
 
 
 def build_html_with_image(post_data: dict, image_url: str | None) -> str:
-    """최종 HTML 콘텐츠 조합 (이미지 + SEO 메타 + 본문)"""
+    """최종 HTML 콘텐츠 조합 (이미지 + 본문)"""
     keywords_str = ", ".join(post_data.get("keywords", []))
-    meta_desc = post_data.get("meta_description", "")
-    content = post_data.get("content", "")
+    meta_desc    = post_data.get("meta_description", "")
+    content      = post_data.get("content", "")
 
     image_html = ""
     if image_url:
@@ -260,7 +265,6 @@ def main():
         # Step 2. 이미지 생성 (선택)
         image_url = generate_image(
             prompt=post_data.get("summary", BLOG_TOPIC),
-            title=post_data["title"],
         )
 
         # Step 3. 최종 HTML 빌드
