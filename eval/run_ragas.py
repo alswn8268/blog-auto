@@ -53,13 +53,25 @@ def collect_predictions(golden: list[dict], role: str | None = None) -> dict[str
     }
 
 
-def run_evaluation(records: dict[str, list]):
+def run_evaluation(records: dict[str, list], local_judge: bool = True):
+    """RAGAS 평가. 기본은 로컬 판정기(Ollama + BGE-M3)를 쓴다.
+
+    local_judge=False로 두면 RAGAS 기본값(OpenAI)이 쓰이는데, 그 경우 근거 조항
+    원문이 외부 API로 나간다. 내부망 전제에서는 켜지 말 것.
+    """
     from datasets import Dataset
     from ragas import evaluate
     from ragas.metrics import context_recall, faithfulness
 
     dataset = Dataset.from_dict(records)
-    return evaluate(dataset, metrics=[faithfulness, context_recall])
+    kwargs = {}
+    if local_judge:
+        from eval.local_judge import build_judges
+
+        llm, embeddings = build_judges()
+        kwargs = {"llm": llm, "embeddings": embeddings}
+
+    return evaluate(dataset, metrics=[faithfulness, context_recall], **kwargs)
 
 
 def main() -> int:
@@ -70,6 +82,10 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=None, help="앞에서 N문항만")
     parser.add_argument("--out", default="eval/results.json")
     parser.add_argument("--history", action="store_true", help="지난 실행 이력만 출력하고 종료")
+    parser.add_argument(
+        "--openai-judge", action="store_true",
+        help="RAGAS 기본 판정기(OpenAI) 사용. 근거 조항 원문이 외부로 나가므로 내부망에서는 쓰지 말 것",
+    )
     args = parser.parse_args()
 
     if args.history:
@@ -84,7 +100,9 @@ def main() -> int:
 
     previous = read_history()
     records = collect_predictions(golden, role=args.role)
-    result = run_evaluation(records)
+    if args.openai_judge:
+        logger.warning("OpenAI 판정기를 사용합니다 — 근거 조항 원문이 외부 API로 전송됩니다.")
+    result = run_evaluation(records, local_judge=not args.openai_judge)
     print(result)  # 예: {'faithfulness': 0.82, 'context_recall': 0.77}
 
     scores = {k: float(v) for k, v in dict(result).items()}

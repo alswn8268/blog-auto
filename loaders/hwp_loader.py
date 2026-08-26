@@ -33,10 +33,11 @@ class DocumentLoadError(RuntimeError):
 
 
 def load_hwp(filepath: str | Path) -> LoadedDocument:
-    """1순위: rhwp의 LangChain 연동 로더. HWP/HWPX 모두 지원하고 빠르다.
+    """rhwp의 LangChain 연동 로더. HWP/HWPX 모두 지원한다.
 
-    주의: rhwp는 비교적 최근 공개된 패키지라 API가 바뀔 수 있다.
-    실제 사용 전 PyPI/GitHub의 최신 사용법을 한 번 더 확인할 것.
+    주의: rhwp는 2026-08 기준 PyPI에 배포돼 있지 않아 requirements.txt에서 제외했다.
+    설치돼 있지 않으면 load_document가 이 로더를 건너뛰고 다음 파서로 넘어간다.
+    나중에 배포되면 설치 후 HWP_LOADERS 순서만 앞으로 옮기면 된다.
     """
     from rhwp.integrations.langchain import HwpLoader  # 지연 임포트
 
@@ -46,7 +47,7 @@ def load_hwp(filepath: str | Path) -> LoadedDocument:
 
 
 def load_hwp_fallback(filepath: str | Path) -> LoadedDocument:
-    """대안: hwp-hwpx-parser (순수 Python, JVM·Windows 불필요).
+    """현재 1순위: hwp-hwpx-parser (순수 Python, JVM·Windows 불필요).
 
     표를 마크다운으로 뽑아주므로 별표·별지서식이 많은 문서에서 결과가 더 깨끗할 수 있다.
     """
@@ -91,7 +92,9 @@ def load_text(filepath: str | Path) -> LoadedDocument:
 
 # ── 단일 진입점 ────────────────────────────────────────────────────────────
 
-HWP_LOADERS = (load_hwp, load_hwp_fallback)
+# 앞에서부터 순서대로 시도한다. 설치돼 있지 않은 파서는 자동으로 건너뛴다.
+# 1주차에 실제 샘플로 두 파서를 비교해보고, 결과가 더 깨끗한 쪽을 앞자리에 두면 된다.
+HWP_LOADERS = (load_hwp_fallback, load_hwp)
 
 
 def load_document(filepath: str | Path) -> LoadedDocument:
@@ -108,12 +111,24 @@ def load_document(filepath: str | Path) -> LoadedDocument:
     suffix = path.suffix.lower()
     if suffix in {".hwp", ".hwpx"}:
         errors: list[str] = []
+        installed = 0
         for loader in HWP_LOADERS:
             try:
                 return loader(path)
+            except ImportError as exc:
+                # 설치되지 않은 파서는 조용히 건너뛴다 (경고를 매 파일마다 찍지 않는다)
+                logger.debug("%s 미설치: %s", loader.__name__, exc)
+                errors.append(f"{loader.__name__}: 미설치 ({exc})")
             except Exception as exc:  # 파서마다 예외 타입이 제각각이라 광범위하게 잡는다
+                installed += 1
                 logger.warning("%s 실패 (%s): %s", loader.__name__, path.name, exc)
                 errors.append(f"{loader.__name__}: {exc}")
+
+        if installed == 0:
+            raise DocumentLoadError(
+                f"HWP 파서가 하나도 설치돼 있지 않습니다 ({path.name}). "
+                "`pip install hwp-hwpx-parser`로 설치하세요."
+            )
         raise DocumentLoadError(f"HWP 파싱 실패 ({path.name})\n" + "\n".join(errors))
 
     if suffix == ".pdf":
