@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# 환경 변수 (SALT·모델 키 등이 들어가므로 절대 커밋 금지)
+.env
+
+# 원문 문서 — 사규 원문은 저장소에 올리지 않는다
+data/raw/*
+!data/raw/.gitkeep
+data/hash_store.json
+
+# 로그 — 질문·답변 로그는 개인정보이므로 커밋 금지
+logs/*
+!logs/.gitkeep
+
+# 런타임 데이터
+qdrant_data/
+ollama_data/

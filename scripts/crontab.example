@@ -1,0 +1,12 @@
+# 사규·법령 Q&A — 자동 재색인 및 로그 파기 (명세 4.4 / 6.2)
+# 등록:  crontab scripts/crontab.example
+# 경로·가상환경 위치는 실제 배포 환경에 맞게 고칠 것.
+
+PROJECT=/opt/regulation-qa
+PY=/opt/regulation-qa/.venv/bin/python
+
+# 매일 새벽 3시 — 변경된 사규 파일의 바뀐 조항만 재색인
+0 3 * * * cd $PROJECT && $PY -m features.auto_reindex >> logs/reindex.log 2>&1
+
+# 매일 새벽 3시 30분 — 보존기간(RETENTION_DAYS)이 지난 감사로그 파기
+30 3 * * * cd $PROJECT && $PY -m security.audit_log >> logs/purge.log 2>&1
