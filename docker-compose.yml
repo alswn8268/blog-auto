@@ -1,0 +1,39 @@
+# 내부망 전용 구성 (명세 2.9).
+# 세 컨테이너 모두 외부 인터넷 없이 동작한다 — 모델은 최초 1회만 내려받아 볼륨에 남는다.
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports: ["6333:6333"]
+    volumes: ["./qdrant_data:/qdrant/storage"]
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    ports: ["11434:11434"]
+    volumes: ["./ollama_data:/root/.ollama"]
+    restart: unless-stopped
+    # GPU가 없는 환경에서는 아래 deploy 블록을 통째로 주석 처리하면 CPU로 돈다.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  app:
+    build:
+      context: .
+      dockerfile: app/Dockerfile
+    ports: ["8501:8501"]
+    depends_on: [qdrant, ollama]
+    environment:
+      QDRANT_URL: http://qdrant:6333
+      OLLAMA_URL: http://ollama:11434
+      LLM_MODEL: ${LLM_MODEL:-qwen3:8b}
+      AUDIT_SALT: ${AUDIT_SALT:?AUDIT_SALT를 .env에 설정하세요}
+      RETENTION_DAYS: ${RETENTION_DAYS:-90}
+    volumes:
+      - ./data:/app/data      # 원문·해시 저장소
+      - ./logs:/app/logs      # 감사로그 (호스트에서 접근권한 제한 필요)
+    restart: unless-stopped

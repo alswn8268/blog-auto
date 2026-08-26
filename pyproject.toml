@@ -1,0 +1,13 @@
+[project]
+name = "regulation-qa"
+version = "0.1.0"
+description = "사규·법령 통합 검색 시스템 (Q&A 기반) — 조항 단위 RAG 프로토타입"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
