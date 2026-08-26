@@ -1,4 +1,4 @@
-.PHONY: help up down setup index reindex app eval gaps purge test
+.PHONY: help up down setup index reindex app eval eval-log gaps purge test
 
 help:
 	@grep -E '^[a-z-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS=":.*?## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
@@ -21,8 +21,11 @@ reindex: ## 변경된 파일의 바뀐 조항만 재색인 (cron: 0 3 * * *)
 app:     ## Streamlit 실행
 	streamlit run app/main.py
 
-eval:    ## RAGAS 평가
+eval:    ## RAGAS 평가 (점수 하락 시 종료코드 1)
 	python -m eval.run_ragas
+
+eval-log: ## 지난 평가 이력 보기
+	python -m eval.run_ragas --history
 
 gaps:    ## 로그에서 개선 지점 추출
 	python -m improvement.gap_analysis

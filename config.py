@@ -52,9 +52,20 @@ class Settings:
     llm_model: str = field(default_factory=lambda: os.environ.get("LLM_MODEL", "qwen3:8b"))
     llm_timeout: int = field(default_factory=lambda: _env_int("LLM_TIMEOUT", 180))
 
-    # 검색 파라미터
+    # 검색 파라미터 (1단계 고도화 — 튜닝 훅)
     retrieve_top_k: int = field(default_factory=lambda: _env_int("RETRIEVE_TOP_K", 20))
     rerank_top_k: int = field(default_factory=lambda: _env_int("RERANK_TOP_K", 5))
+    # dense/sparse 각 갈래에서 융합 전에 몇 배로 뽑아올지. 크게 잡으면 리콜↑ 지연시간↑
+    prefetch_multiplier: int = field(default_factory=lambda: _env_int("PREFETCH_MULTIPLIER", 2))
+    # 융합 방식: rrf(순위 기반, 기본) | dbsf(점수 분포 기반)
+    fusion: str = field(default_factory=lambda: os.environ.get("FUSION", "rrf").strip().lower())
+
+    # Multi-Query: 질문을 N개로 바꿔 각각 검색한 뒤 함께 융합한다. 0이면 끈다.
+    # 리콜은 오르지만 LLM 호출이 한 번 더 들고 지연시간이 늘어난다.
+    multi_query_n: int = field(default_factory=lambda: _env_int("MULTI_QUERY_N", 0))
+
+    # 도메인 라우팅: 질문 성격으로 검색 대상 문서종류를 좁힌다. 확신이 없으면 좁히지 않는다.
+    routing_enabled: bool = field(default_factory=lambda: _env_bool("ROUTING_ENABLED", False))
 
     # 경로
     data_dir: Path = field(default_factory=lambda: _env_path("DATA_DIR", str(ROOT / "data" / "raw")))
@@ -74,6 +85,11 @@ class Settings:
     @property
     def feedback_log_path(self) -> Path:
         return self.log_dir / "feedback.jsonl"
+
+    @property
+    def eval_history_path(self) -> Path:
+        """RAGAS 상시 평가 결과 이력 (회귀 감지에 사용)."""
+        return ROOT / "eval" / "history.jsonl"
 
     @property
     def hash_store_path(self) -> Path:

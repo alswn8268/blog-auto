@@ -40,22 +40,49 @@ class Answer:
 def retrieve(question: str, role: str | None = None, client=None) -> list[dict]:
     """하이브리드 검색으로 후보를 뽑고 리랭커로 상위 k개만 남긴다.
 
-    role을 주면 RBAC 필터(6.2)를 검색 단계에서 건다 — 화면에서 거르는 것이 아니라
-    검색 자체를 좁혀야 원문이 LLM 프롬프트로 새지 않는다.
+    두 가지 필터가 검색 단계에서 함께 걸린다.
+      - RBAC(6.2): role이 볼 수 없는 문서를 제외. 화면에서 거르면 원문이 이미
+        LLM 프롬프트에 들어간 뒤라 접근제어가 되지 않는다.
+      - 도메인 라우팅(7장 2단계): 질문 성격이 뚜렷할 때만 문서종류를 좁힌다.
+
+    MULTI_QUERY_N이 켜져 있으면 질문을 여러 표현으로 펼쳐 함께 검색한다.
     """
     from embedding.embedder import get_embedder
-    from vectordb.store import hybrid_search
+    from vectordb.store import combine_filters, hybrid_search
 
     s = get_settings()
-    query_filter = None
+
+    permission_filter = None
     if role:
         from security.rbac import build_permission_filter
 
-        query_filter = build_permission_filter(role)
+        permission_filter = build_permission_filter(role)
+
+    routing_filter = None
+    if s.routing_enabled:
+        from routing.domain_router import build_routing_filter
+
+        routing_filter = build_routing_filter(question)
+
+    query_filter = combine_filters(permission_filter, routing_filter)
+
+    extra_queries = None
+    if s.multi_query_n > 0:
+        from pipeline.multi_query import embed_variants, expand_query
+
+        variants = expand_query(question)
+        if variants:
+            logger.info("Multi-Query 확장 %d개: %s", len(variants), variants)
+            extra_queries = embed_variants(variants)
 
     dense, sparse = get_embedder().encode_query(question)
     candidates = hybrid_search(
-        dense, sparse, limit=s.retrieve_top_k, query_filter=query_filter, client=client
+        dense,
+        sparse,
+        limit=s.retrieve_top_k,
+        query_filter=query_filter,
+        client=client,
+        extra_queries=extra_queries,
     )
     return rerank_chunks(question, candidates, top_k=s.rerank_top_k)
 

@@ -5,7 +5,12 @@ context_recall을 계산한다.
 
 목표치: Faithfulness 0.75 이상. 이 아래로 나오면 청킹·프롬프트를 먼저 의심할 것.
 
+**상시 평가(7장 1단계)**: 실행할 때마다 점수와 설정 스냅샷을 eval/history.jsonl에
+쌓고, 직전 실행 대비 떨어졌으면 회귀로 보고 종료코드 1로 끝낸다. cron에 걸어두면
+프롬프트·청킹·검색 파라미터를 바꿨을 때 퇴보를 그날 안에 알 수 있다.
+
 실행: python -m eval.run_ragas --golden eval/golden_set.json
+      python -m eval.run_ragas --history        (지난 실행 이력만 보기)
 """
 
 from __future__ import annotations
@@ -15,9 +20,16 @@ import json
 import logging
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
+from eval.history import (
+    FAITHFULNESS_TARGET,
+    append_run,
+    below_target,
+    detect_regressions,
+    read_history,
+    summarize,
+)
 
-FAITHFULNESS_TARGET = 0.75
+logger = logging.getLogger(__name__)
 
 
 def collect_predictions(golden: list[dict], role: str | None = None) -> dict[str, list]:
@@ -50,39 +62,59 @@ def run_evaluation(records: dict[str, list]):
     return evaluate(dataset, metrics=[faithfulness, context_recall])
 
 
-def main() -> None:
+def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     parser = argparse.ArgumentParser(description="골든셋으로 RAGAS 평가를 돌린다")
     parser.add_argument("--golden", default="eval/golden_set.json")
     parser.add_argument("--role", default=None, help="RBAC 역할을 씌워 평가")
     parser.add_argument("--limit", type=int, default=None, help="앞에서 N문항만")
     parser.add_argument("--out", default="eval/results.json")
+    parser.add_argument("--history", action="store_true", help="지난 실행 이력만 출력하고 종료")
     args = parser.parse_args()
+
+    if args.history:
+        lines = summarize()
+        print("\n".join(lines) if lines else "평가 이력이 없습니다.")
+        return 0
 
     golden = json.loads(Path(args.golden).read_text(encoding="utf-8"))
     if args.limit:
         golden = golden[: args.limit]
     logger.info("골든셋 %d문항으로 평가합니다", len(golden))
 
+    previous = read_history()
     records = collect_predictions(golden, role=args.role)
     result = run_evaluation(records)
     print(result)  # 예: {'faithfulness': 0.82, 'context_recall': 0.77}
 
-    scores = dict(result) if not isinstance(result, dict) else result
+    scores = {k: float(v) for k, v in dict(result).items()}
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(
-        json.dumps({"n": len(golden), "scores": {k: float(v) for k, v in scores.items()}},
-                   ensure_ascii=False, indent=2),
+        json.dumps({"n": len(golden), "scores": scores}, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    append_run(scores, len(golden))
 
-    faith = float(scores.get("faithfulness", 0.0))
-    if faith < FAITHFULNESS_TARGET:
+    exit_code = 0
+
+    regressions = detect_regressions(scores, previous[-1]["scores"] if previous else None)
+    if regressions:
+        logger.error("직전 실행 대비 점수가 떨어졌습니다:")
+        for r in regressions:
+            logger.error("  %s", r)
+        if previous:
+            logger.error("  직전 설정: %s", previous[-1].get("config"))
+        exit_code = 1
+
+    if below_target(scores):
         logger.warning(
             "Faithfulness %.3f < 목표 %.2f — 청킹 규칙과 프롬프트를 먼저 점검하세요.",
-            faith, FAITHFULNESS_TARGET,
+            scores.get("faithfulness", 0.0), FAITHFULNESS_TARGET,
         )
+        exit_code = 1
+
+    return exit_code
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

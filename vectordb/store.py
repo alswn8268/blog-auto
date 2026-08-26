@@ -89,36 +89,92 @@ def _hit_to_chunk(hit) -> dict:
     return payload
 
 
+def combine_filters(*filters):
+    """여러 Qdrant 필터를 AND로 합친다 (RBAC 필터 + 라우팅 필터 등).
+
+    None은 무시한다. 합칠 것이 없으면 None을 돌려준다.
+    should 절을 가진 필터가 둘 이상이면 서로의 OR가 섞여 의미가 무너지므로,
+    그런 필터는 통째로 must 안에 중첩시켜 각자의 should를 보존한다.
+    """
+    from qdrant_client import models
+
+    present = [f for f in filters if f is not None]
+    if not present:
+        return None
+    if len(present) == 1:
+        return present[0]
+
+    must, must_not = [], []
+    for f in present:
+        if getattr(f, "should", None) or getattr(f, "min_should", None):
+            must.append(models.Filter(should=f.should, min_should=getattr(f, "min_should", None)))
+            if f.must:
+                must.extend(f.must)
+            if f.must_not:
+                must_not.extend(f.must_not)
+            continue
+        if f.must:
+            must.extend(f.must)
+        if f.must_not:
+            must_not.extend(f.must_not)
+    return models.Filter(must=must or None, must_not=must_not or None)
+
+
+def _fusion_query():
+    """설정된 융합 방식. rrf는 순위 기반, dbsf는 점수 분포 기반."""
+    from qdrant_client import models
+
+    name = get_settings().fusion
+    if name == "dbsf":
+        return models.FusionQuery(fusion=models.Fusion.DBSF)
+    if name != "rrf":
+        logger.warning("알 수 없는 FUSION=%s — rrf로 대체합니다", name)
+    return models.FusionQuery(fusion=models.Fusion.RRF)
+
+
 def hybrid_search(
     query_dense: list[float],
     query_sparse: dict[str, float],
     limit: int | None = None,
     query_filter=None,
     client=None,
+    extra_queries: list[tuple[list[float], dict[str, float]]] | None = None,
 ) -> list[dict]:
-    """dense·sparse 후보를 각각 뽑아 RRF로 융합한다.
+    """dense·sparse 후보를 각각 뽑아 융합한다.
 
-    query_filter로 RBAC 필터(6.2)나 시행일자 필터를 그대로 끼워 넣을 수 있다.
+    extra_queries를 주면(Multi-Query) 변형 질문마다 dense/sparse 갈래를 더 만들어
+    한 번의 호출로 전부 융합한다. 질문 변형이 각자 다른 조항을 물어와도
+    순위 융합이 이를 하나의 목록으로 합쳐준다.
+
+    query_filter로 RBAC 필터(6.2)나 도메인 라우팅 필터를 그대로 끼워 넣을 수 있다.
     """
     from qdrant_client import models
 
     s = get_settings()
     client = client or get_client()
     limit = limit or s.retrieve_top_k
-    prefetch_limit = max(limit * 2, limit)
+    prefetch_limit = max(limit * max(s.prefetch_multiplier, 1), limit)
+
+    pairs = [(query_dense, query_sparse), *(extra_queries or [])]
+    prefetch = []
+    for dense, sparse in pairs:
+        prefetch.append(
+            models.Prefetch(query=dense, using=DENSE, limit=prefetch_limit, filter=query_filter)
+        )
+        if sparse:
+            prefetch.append(
+                models.Prefetch(
+                    query=to_sparse_vector(sparse),
+                    using=SPARSE,
+                    limit=prefetch_limit,
+                    filter=query_filter,
+                )
+            )
 
     response = client.query_points(
         collection_name=s.collection,
-        prefetch=[
-            models.Prefetch(query=query_dense, using=DENSE, limit=prefetch_limit, filter=query_filter),
-            models.Prefetch(
-                query=to_sparse_vector(query_sparse),
-                using=SPARSE,
-                limit=prefetch_limit,
-                filter=query_filter,
-            ),
-        ],
-        query=models.FusionQuery(fusion=models.Fusion.RRF),
+        prefetch=prefetch,
+        query=_fusion_query(),
         query_filter=query_filter,
         limit=limit,
         with_payload=True,
