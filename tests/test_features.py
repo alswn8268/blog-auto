@@ -24,6 +24,14 @@ def test_신뢰도_등급(rerank, faith, expected):
     assert compute_confidence(rerank, faith) == expected
 
 
+def test_근거가_약하면_인용이_완벽해도_하로_내려간다():
+    # 검색이 관련 없는 조항을 물어왔는데 인용 형식만 맞는 경우.
+    # 가중 평균만 쓰면 0.5가 되어 '중'으로 보이지만, 사용자에게는 근거 없는 답이다.
+    assert compute_confidence(0.0, 1.0) == "하"
+    assert compute_confidence(0.29, 1.0) == "하"
+    assert compute_confidence(0.31, 1.0) == "중"
+
+
 def test_근거에_있는_조항만_인용하면_충실도가_1이다():
     assert citation_ratio("연차는 15일입니다.\n근거: 복무규정 제20조", CONTEXTS) == 1.0
 
@@ -122,6 +130,20 @@ def test_실제로_바뀐_조항만_재색인_대상이_된다():
     assert [n["article_no"] for _, n in changed] == ["제2조", "제3조"]
     assert changed[0][0]["id"] == "2"   # 표기가 흔들려도 기존 조항과 매칭된다
     assert changed[1][0] is None        # 신설 조항은 대응하는 기존본이 없다
+
+
+def test_부칙_제1조가_본문_제1조와_비교되지_않는다():
+    # 부칙에도 '제1조'가 나온다. 구분하지 않으면 바뀌지도 않은 본문 제1조가
+    # 부칙 제1조와 비교돼 매번 개정으로 잡히고, 불필요한 재임베딩이 발생한다.
+    old = [
+        {"article_no": "제1조", "text": "목적", "is_addenda": False, "id": "1"},
+        {"article_no": "제1조", "text": "시행일", "is_addenda": True, "id": "2"},
+    ]
+    new = [
+        {"article_no": "제1조", "text": "목적", "is_addenda": False},
+        {"article_no": "제1조", "text": "시행일", "is_addenda": True},
+    ]
+    assert diff_chunks(old, new) == []
 
 
 def test_파일_해시는_내용이_같으면_같다(tmp_path):

@@ -105,6 +105,20 @@ def test_문서_공백_리포트는_건수_순으로_나온다(logs):
     assert gaps and gaps[0]["size"] >= gaps[-1]["size"]
 
 
+def test_임베딩_모델을_못_불러와도_클러스터링이_죽지_않는다(monkeypatch):
+    # 내부망 첫 구동처럼 모델이 아직 준비되지 않은 상태에서도 관리자 화면은 열려야 한다.
+    import improvement.gap_analysis as gap
+
+    def _boom():
+        raise OSError("모델을 불러올 수 없습니다")
+
+    monkeypatch.setattr("embedding.embedder.get_embedder", _boom)
+    questions = [f"질문 {i} 출장비 정산" for i in range(10)]
+    clusters = gap.cluster_questions(questions, n_clusters=3)
+
+    assert sum(len(v) for v in clusters.values()) == len(questions)
+
+
 def test_프롬프트_버전별로_신뢰도를_비교할_수_있다(logs):
     audit, _ = logs
     rows = {r["prompt_version"]: r for r in compare_versions(audit)}

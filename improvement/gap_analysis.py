@@ -41,21 +41,27 @@ def cluster_questions(questions: list[str], n_clusters: int = 5) -> dict[int, li
     """저신뢰 질문을 임베딩해 주제별로 묶는다.
 
     질문 수가 적으면(클러스터 수 이하) 묶지 않고 하나로 돌려준다.
-    scikit-learn이 없으면 단순 키워드 빈도 묶기로 자동 폴백한다.
+
+    scikit-learn이 없거나 임베딩 모델을 불러오지 못하면 키워드 빈도 묶기로 자동 폴백한다.
+    관리자 화면은 임베딩이 준비되기 전에도 열려야 하므로, 여기서 예외를 밖으로 내보내지 않는다.
+    (모델을 아직 안 받은 내부망 첫 구동에서 실제로 자주 걸리는 지점이다.)
     """
     if len(questions) <= n_clusters:
         return {0: questions}
 
     try:
         from sklearn.cluster import KMeans  # 지연 임포트
+
+        from embedding.embedder import get_embedder
+
+        vectors = get_embedder().encode(questions).dense
+        labels = KMeans(n_clusters=n_clusters, n_init=10, random_state=0).fit_predict(vectors)
     except ImportError:
         logger.info("scikit-learn이 없어 키워드 빈도 묶기로 대체합니다")
         return _cluster_by_keyword(questions, n_clusters)
-
-    from embedding.embedder import get_embedder
-
-    vectors = get_embedder().encode(questions).dense
-    labels = KMeans(n_clusters=n_clusters, n_init=10, random_state=0).fit_predict(vectors)
+    except Exception as exc:  # 모델 로딩 실패·다운로드 불가 등
+        logger.warning("임베딩 클러스터링 실패, 키워드 빈도 묶기로 대체합니다: %s", exc)
+        return _cluster_by_keyword(questions, n_clusters)
 
     grouped: dict[int, list[str]] = defaultdict(list)
     for q, label in zip(questions, labels):

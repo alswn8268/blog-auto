@@ -110,14 +110,22 @@ def test_빈_질문과_지나치게_긴_질문은_막는다():
 # ── RBAC ───────────────────────────────────────────────────────────────────
 
 
-def test_역할별로_열람_범위가_다르다():
+def test_제한_문서는_담당_부서만_볼_수_있다():
     인사규정 = {"doc_title": "인사규정", "doc_type": "사규"}
-    법령 = {"doc_title": "국가재정법", "doc_type": "법령"}
 
     assert can_access("인사팀", 인사규정)
+    assert can_access("감사실", 인사규정)
     assert not can_access("전체직원", 인사규정)
-    assert can_access("전체직원", 법령)
 
 
-def test_모르는_역할은_가장_좁은_권한을_받는다():
+def test_제한_목록에_없는_문서는_전_직원이_볼_수_있다():
+    # 허용 목록 방식이면 새 사규를 목록에 넣는 걸 빠뜨렸을 때 아무도 못 보게 된다.
+    # 검색이 조용히 0건이 되므로 알아차리기 어렵다 — 그래서 기본은 공개로 둔다.
+    assert can_access("전체직원", {"doc_title": "복무규정", "doc_type": "사규"})
+    assert can_access("전체직원", {"doc_title": "국가재정법", "doc_type": "법령"})
+    assert can_access("전체직원", {"doc_title": "처음보는규정", "doc_type": "사규"})
+
+
+def test_모르는_역할은_제한_문서를_못_본다():
     assert not can_access("알수없는팀", {"doc_title": "인사규정", "doc_type": "사규"})
+    assert can_access("알수없는팀", {"doc_title": "복무규정", "doc_type": "사규"})

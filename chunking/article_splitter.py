@@ -6,8 +6,8 @@
 
 from __future__ import annotations
 
-import hashlib
 import re
+import uuid
 
 # "제15조", "제15조의2", "제 15 조(목적)" 모두 인식
 ARTICLE_PATTERN = re.compile(r"(제\s*\d+\s*조(?:의\s*\d+)?)\s*(\([^)\n]{0,80}\))?")
@@ -20,6 +20,9 @@ ADDENDA_PATTERN = re.compile(r"^\s*부\s*칙", re.MULTILINE)
 
 # 조 번호 표기 흔들림("제 15 조" vs "제15조")을 흡수하기 위한 정규화
 _SPACES = re.compile(r"\s+")
+
+# 청크 ID를 만들 때 쓰는 고정 네임스페이스. 바꾸면 기존 색인과 ID가 어긋나므로 고정한다.
+CHUNK_ID_NAMESPACE = uuid.UUID("6f9619ff-8b86-d011-b42d-00c04fc964ff")
 
 
 def normalize_article_no(article_no: str) -> str:
@@ -58,10 +61,13 @@ def make_chunk_id(
     같은 문서를 다시 색인해도 같은 ID가 나오므로 upsert가 중복을 만들지 않고,
     시행일자가 다르면 다른 ID가 되므로 개정 이력이 함께 남는다.
     부칙에도 '제1조'가 다시 나오므로 본문 조항과 ID가 겹치지 않도록 구분한다.
+
+    Qdrant는 포인트 ID로 부호 없는 정수 또는 UUID만 받으므로 uuid5를 쓴다.
+    (uuid5는 입력이 같으면 항상 같은 값이라 '안정적인 ID' 조건도 그대로 만족한다.)
     """
     scope = "부칙" if is_addenda else "본문"
     raw = f"{doc_title}|{scope}|{normalize_article_no(article_no)}|{effective_date or ''}"
-    return hashlib.sha1(raw.encode("utf-8")).hexdigest()
+    return str(uuid.uuid5(CHUNK_ID_NAMESPACE, raw))
 
 
 def split_by_article(

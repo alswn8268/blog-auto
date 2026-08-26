@@ -76,15 +76,22 @@ def detect_changed_files(watch_dir: Path, hash_store: dict[str, str]) -> list[Pa
     return changed
 
 
-def diff_chunks(old_chunks: list[dict], new_chunks: list[dict]) -> list[tuple[dict | None, dict]]:
-    """기존 조항과 비교해 '진짜 바뀐' 조항만 추린다 (4.2의 비교 로직 재사용).
+def _match_key(chunk: dict) -> tuple[bool, str]:
+    """개정 전후 조항을 짝지을 키.
 
-    조 번호 표기가 흔들려도(제 15 조 / 제15조) 같은 조항으로 매칭되도록 정규화 키를 쓴다.
+    조 번호 표기가 흔들려도(제 15 조 / 제15조) 같은 조항으로 매칭되도록 정규화하고,
+    부칙에도 '제1조'가 다시 나오므로 본문/부칙을 구분한다. 구분하지 않으면 본문 제1조가
+    부칙 제1조와 비교돼 바뀌지도 않은 조항이 매번 개정으로 잡힌다.
     """
-    old_by_no = {normalize_article_no(o.get("article_no", "")): o for o in old_chunks}
+    return (bool(chunk.get("is_addenda")), normalize_article_no(chunk.get("article_no", "")))
+
+
+def diff_chunks(old_chunks: list[dict], new_chunks: list[dict]) -> list[tuple[dict | None, dict]]:
+    """기존 조항과 비교해 '진짜 바뀐' 조항만 추린다 (4.2의 비교 로직 재사용)."""
+    old_by_key = {_match_key(o): o for o in old_chunks}
     changed: list[tuple[dict | None, dict]] = []
     for new in new_chunks:
-        old = old_by_no.get(normalize_article_no(new.get("article_no", "")))
+        old = old_by_key.get(_match_key(new))
         if old is None or is_changed(old.get("text", ""), new.get("text", "")):
             changed.append((old, new))
     return changed

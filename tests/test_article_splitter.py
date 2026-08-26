@@ -1,5 +1,7 @@
 """조항 청킹 (2.2). 표·부칙에서 깨지지 않는지가 핵심 검증 지점."""
 
+import uuid
+
 from chunking.article_splitter import (
     chunk_document,
     make_chunk_id,
@@ -66,6 +68,13 @@ def test_같은_문서를_다시_청킹하면_같은_id가_나온다():
     assert [c["id"] for c in chunk_document(SAMPLE, META)] == [
         c["id"] for c in chunk_document(SAMPLE, META)
     ]
+
+
+def test_청크_id는_유효한_UUID다():
+    # Qdrant는 포인트 ID로 부호 없는 정수 또는 UUID만 받는다.
+    # 이 조건이 깨지면 색인 자체가 실패한다.
+    for c in chunk_document(SAMPLE, META):
+        assert str(uuid.UUID(c["id"])) == c["id"]
 
 
 def test_시행일자가_다르면_다른_id가_되어_이력이_남는다():

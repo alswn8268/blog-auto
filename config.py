@@ -44,7 +44,8 @@ class Settings:
     embed_model: str = field(default_factory=lambda: os.environ.get("EMBED_MODEL", "BAAI/bge-m3"))
     rerank_model: str = field(default_factory=lambda: os.environ.get("RERANK_MODEL", "BAAI/bge-reranker-v2-m3"))
     embed_use_fp16: bool = field(default_factory=lambda: _env_bool("EMBED_USE_FP16", True))
-    dense_dim: int = 1024  # bge-m3 dense 차원
+    # dense 벡터 차원. 임베딩 모델을 바꾸면 이 값도 함께 바꿔야 컬렉션 생성이 맞아떨어진다.
+    dense_dim: int = field(default_factory=lambda: _env_int("EMBED_DIM", 1024))  # bge-m3 기준
 
     # LLM
     ollama_url: str = field(default_factory=lambda: os.environ.get("OLLAMA_URL", "http://localhost:11434"))

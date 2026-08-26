@@ -59,6 +59,20 @@ python -m pipeline.query "연차휴가는 며칠인가요?"
 
 전 과정을 한 번에 점검하려면 `./scripts/smoke_test.sh`.
 
+### 모델·서버 없이 먼저 돌려보기 (데모 모드)
+
+Qdrant 서버·Ollama·모델 다운로드 없이 파이프라인 배선을 몇 초 만에 확인할 수 있습니다.
+인메모리 Qdrant + 해싱 임베더 + 발췌형 스텁 LLM으로 대역을 세운 구성입니다.
+
+```bash
+pip install qdrant-client          # 데모에 필요한 유일한 의존성
+python scripts/demo.py             # 색인 → 질의 → 보안 → 재색인 → RBAC 순서로 출력
+streamlit run scripts/demo_app.py  # 같은 대역으로 실제 UI 띄우기
+```
+
+> 대역은 **배선 검증용**이며 검색 품질을 대표하지 않습니다.
+> 실제 품질은 real 모델을 붙인 뒤 `python -m eval.run_ragas`로 측정하세요.
+
 Docker로 통째로 띄우려면 `docker compose up -d` (앱 이미지는 `app/Dockerfile`).
 
 ---
